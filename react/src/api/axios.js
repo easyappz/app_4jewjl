@@ -19,7 +19,7 @@ instance.interceptors.request.use(
   (config) => {
     console.log('request', { config });
 
-    const token = localStorage.getItem('token');
+    const token = localStorage.getItem('accessToken');
     if (token) {
       config.headers['Authorization'] = `Bearer ${token}`;
     } else {
@@ -39,7 +39,38 @@ instance.interceptors.response.use(
   (response) => {
     return response;
   },
-  (error) => {
+  async (error) => {
+    const originalRequest = error.config;
+
+    // Handle token refresh on 401 errors
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true;
+
+      try {
+        const refreshToken = localStorage.getItem('refreshToken');
+        if (refreshToken) {
+          const response = await axios.post('/api/auth/refresh/', {
+            refresh: refreshToken,
+          });
+
+          const newAccessToken = response.data.access;
+          localStorage.setItem('accessToken', newAccessToken);
+          localStorage.setItem('token', newAccessToken);
+
+          originalRequest.headers['Authorization'] = `Bearer ${newAccessToken}`;
+          return instance(originalRequest);
+        }
+      } catch (refreshError) {
+        // If refresh fails, clear tokens and redirect to login
+        localStorage.removeItem('accessToken');
+        localStorage.removeItem('refreshToken');
+        localStorage.removeItem('user');
+        localStorage.removeItem('token');
+        window.location.href = '/login';
+        return Promise.reject(refreshError);
+      }
+    }
+
     // Log error to console
     console.error('API Error:', error);
 
